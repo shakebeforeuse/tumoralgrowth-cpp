@@ -208,14 +208,46 @@ void TumorAutomaton::operator ()(int index, int nGenerations)
 		int endY   = domainEnd_[1];
 		
 		//Change iteration direction, to avoid distortion
-		if (it_ == 0)
+if (it_ == 0)
 			for (int i = startX; i < endX; ++i)
+			{
+				if (index != 0 && i < startX + 2)
+					locks_[index - 1].lock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].lock();
+				
+				
 				for (int j = startY; j < endY; ++j)
 					updateCell(i, j, index);
+				
+				
+				if (index != 0 && i < startX + 2)
+					locks_[index - 1].unlock();
+				
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].unlock();
+			}
 		else
 			for (int i = endX - 1; i >= startX; --i)
+			{
+				if (index != 0 && i < startX + 2)
+					locks_[index - 1].lock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].lock();
+				
+				
 				for (int j = endY - 1; j >= startY; --j)
 					updateCell(i, j, index);
+				
+				
+				if (index != 0 && i < startX + 2)
+					locks_[index - 1].unlock();
+				
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].unlock();
+			}
 	}
 	
 	//Save state for the next call to execute (if any)
