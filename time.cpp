@@ -23,6 +23,8 @@ int main(int argc, char* argv[])
 	}
 	
 	TumorAutomaton tumor(size);
+	tumor.ps = 1;
+	tumor.pp = 1;
 	tumor.cellState(size/2, size/2, TumorAutomaton::ALIVE);
 	
 	std::chrono::time_point<std::chrono::steady_clock> tic, toc;
@@ -35,4 +37,38 @@ int main(int argc, char* argv[])
 	double elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(toc-tic).count();
 	
 	std::cout << elapsed * 1e-9 << std::endl;
+	
+	for (int i = 0; i < size; ++i)
+	{
+		for (int j = 0; j < size; ++j)
+			switch (tumor.cellState(i, j))
+			{
+				case 0:
+					std::cerr << " ";
+					break;
+				
+				case 1:
+					std::cerr << ".";
+					break;
+					
+				case 2:
+					std::cerr << "o";
+					break;
+				
+				case 3:
+					std::cerr << "O";
+					break;
+				
+				case 4:
+					std::cerr << "M";
+					break;
+				
+				default:
+					std::cerr << "#";
+					break;
+			}
+		
+		std::cerr << std::endl;
+	}
+		
 }

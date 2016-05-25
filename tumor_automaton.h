@@ -31,7 +31,7 @@ class TumorAutomaton
 		void operator()(int, int);
 		void reset();
 		
-		const int cellState(int, int);
+		int cellState(int, int) const;
 		void cellState(int, int, int);
 		
 		~TumorAutomaton();
@@ -39,16 +39,21 @@ class TumorAutomaton
 
 	private:
 		//CA
-		int**  tissue_;
-		int**  rhos_;
-		int**  ph_;
-		char** generation_;
-		char   it_;
+		volatile int**  tissue_;
+		volatile int**  rhos_;
+		volatile int**  ph_;
+		volatile char** generation_;
+		
+		static thread_local char it_;
+		static thread_local char prev_it_;
 		int    size_;
 		
 		//Dynamic domain
-		int domainBegin_[2];
-		int domainEnd_[2];
+		volatile int domainBegin_[2];
+		volatile int domainEnd_[2];
+		
+		volatile int** perThreadDomainBegin_;
+		volatile int** perThreadDomainEnd_;
 		
 		//Paralelism
 		//Number of threads we will have and array of tasks.
@@ -57,13 +62,12 @@ class TumorAutomaton
 		
 		//Synchronization
 		CyclicBarrier* barrier_;
+		std::mutex* locks_;
 		
-		//Non-static random number generaton (to avoid thread-safety)
-		std::uniform_real_distribution<float> random_;
-		std::default_random_engine re_;
 		
 		void awakeNeighbourhood(int, int);
 		void updateCell(int, int);
+		void updateCell(int, int, int);
 };
 
 #endif
