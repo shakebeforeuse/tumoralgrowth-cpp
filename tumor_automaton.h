@@ -62,6 +62,7 @@ class TumorAutomaton
 		
 		//Synchronization
 		CyclicBarrier* barrier_;
+		std::mutex     lock_;
 		
 		
 		void awakeNeighbourhood(int, int);

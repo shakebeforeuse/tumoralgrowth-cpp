@@ -324,6 +324,8 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 					int n[8];
 					float p[8];
 					
+					lock_.lock();
+					
 					//Compute no. of alive neighbours
 					int count = 0;
 					for (int i = -1; i <= 1; ++i)
@@ -410,17 +412,23 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 									continueIt = false;
 								}
 					}
+					
+					lock_.unlock();
 				}
 			}
 		}
 		else
 		{
+			lock_.lock();
+			
 			//If the cell does not survive
 			//Kill the cell
 			tissue_[x][y] = DEAD;
 			
 			//Mark DORMANT neighbours as ALIVE, to be processed
 			awakeNeighbourhood(x, y);
+			
+			lock_.unlock();
 		}
 	}
 }
