@@ -34,8 +34,7 @@ TumorAutomaton::TumorAutomaton(int size)
 	  perThreadDomainEnd_(nullptr),
 	  threads_(1),
 	  tasks_(nullptr),
-	  barrier_(nullptr),
-	  locks_(nullptr)
+	  barrier_(nullptr)
 {
 	//Alloc CA
 	tissue_     = new volatile int*[size_];
@@ -101,7 +100,6 @@ void TumorAutomaton::threads(int n)
 		//Set parameters
 		threads_ = n;
 		tasks_   = new std::thread[n];
-		locks_   = new std::mutex[n];
 		
 		//Reconstruct barrier
 		delete barrier_;
@@ -442,7 +440,6 @@ TumorAutomaton::~TumorAutomaton()
 	delete[] rhos_;
 	delete[] generation_;
 	delete[] tasks_;
-	delete[] locks_;
 	
 	delete barrier_;
 	
