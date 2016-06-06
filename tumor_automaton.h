@@ -46,6 +46,8 @@ class TumorAutomaton
 		
 		static thread_local char it_;
 		static thread_local char prev_it_;
+		static thread_local int begin_;
+		static thread_local int end_;
 		int    size_;
 		
 		//Paralelism
@@ -55,7 +57,7 @@ class TumorAutomaton
 		
 		//Synchronization
 		CyclicBarrier* barrier_;
-		std::mutex lock_;
+		std::mutex* locks_;
 		
 		
 		void awakeNeighbourhood(int, int);

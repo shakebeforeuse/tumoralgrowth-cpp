@@ -22,6 +22,8 @@ float rand_float()
 
 thread_local char TumorAutomaton::it_ = 1;
 thread_local char TumorAutomaton::prev_it_;
+thread_local int  TumorAutomaton::begin_;
+thread_local int  TumorAutomaton::end_;
 
 TumorAutomaton::TumorAutomaton(int size)
 	: ps(.99),
@@ -39,6 +41,8 @@ TumorAutomaton::TumorAutomaton(int size)
 	ph_         = new volatile int*[size_];
 	rhos_       = new volatile int*[size_];
 	generation_ = new volatile char*[size_];
+	
+	locks_ = new std::mutex[1];
 	
 	for (int i = 0; i < size_; ++i)
 	{
@@ -66,9 +70,13 @@ void TumorAutomaton::threads(int n)
 	
 	if (threads_ != n)
 	{
+		delete[] tasks_;
+		delete[] locks_;
+		
 		//Set parameters
 		threads_ = n;
 		tasks_   = new std::thread[n];
+		locks_   = new std::mutex[n];
 		
 		//Reconstruct barrier
 		delete barrier_;
@@ -80,6 +88,10 @@ void TumorAutomaton::execute(int nGenerations)
 {
 	//Sequential
 	if (threads_ <= 1)
+	{
+		begin_ = 0;
+		end_   = size_;
+		
 		//Iterate k times over the whole grid, updating cells
 		for (int k = 0; k < nGenerations; ++k)
 		{
@@ -95,6 +107,7 @@ void TumorAutomaton::execute(int nGenerations)
 					for (int j = size_ - 1; j >= 0; --j)
 						updateCell(i, j, 0);
 		}
+	}
 	else
 	//Multithread
 	{
@@ -127,20 +140,20 @@ void TumorAutomaton::operator ()(int index, int nGenerations)
 		//Compute domain for this thread
 		int delta = size_ / threads_;
 		
-		int startX = index       * delta;			
-		int endX   = (index + 1) * delta;
+		begin_ = index       * delta;			
+		end_   = (index + 1) * delta;
 		
 		if (index + 1 == threads_)
-			endX = size_;
+			end_ = size_;
 		
 		
 		//Change iteration direction, to avoid distortion
 		if (it_ == 0)
-			for (int i = startX; i < endX; ++i)
+			for (int i = begin_; i < end_; ++i)
 				for (int j = 0; j < size_; ++j)
 					updateCell(i, j, index);
 		else
-			for (int i = endX - 1; i >= startX; --i)
+			for (int i = end_ - 1; i >= begin_; --i)
 				for (int j = size_ - 1; j >= 0; --j)
 					updateCell(i, j, index);
 	}
@@ -224,7 +237,9 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 					int n[8];
 					float p[8];
 					
-					lock_.lock();
+					locks_[index].lock();
+					bool postponeChanges = false;
+					int newX = -1, newY = -1;
 					
 					//Compute no. of alive neighbours
 					int count = 0;
@@ -259,56 +274,116 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 							for (int j = -1; j <= 1 && continueIt; ++j)
 								if ((i != 0 || j != 0) && r < p[cont++])
 								{
-									//Proliferate (or migrate) to the specified cell
-									if (proliferate)
+									if (x + i < begin_ || x + i >= end_)
 									{
-										//New cell				
-										tissue_[x+i][y+j] = NEW;
-										
-										//Set proliferation signals to 0.
-										ph_[x+i][y+j] = 0;
-										
-										//Reset no. of proliferations remaining until death.
-										rhos_[x+i][y+j] = rho;
-										
-										//Kill the cell if it has reached the limit.
-										if (--rhos_[x][y] == 0)
-										{
-											tissue_[x][y] = DEAD;
-											awakeNeighbourhood(x, y);
-										}
+										postponeChanges = true;
+										newX = x + i;
+										newY = y + j;
 									}
 									else
 									{
-										//Move to the selected position
-										tissue_[x][y]     = DEAD;
-										tissue_[x+i][y+j] = MIGRATED;
-										awakeNeighbourhood(x, y);
+										//Proliferate (or migrate) to the specified cell
+										if (proliferate)
+										{
+											//New cell				
+											tissue_[x+i][y+j] = NEW;
+											
+											//Set proliferation signals to 0.
+											ph_[x+i][y+j] = 0;
+											
+											//Reset no. of proliferations remaining until death.
+											rhos_[x+i][y+j] = rho;
+											
+											//Kill the cell if it has reached the limit.
+											if (--rhos_[x][y] == 0)
+											{
+												tissue_[x][y] = DEAD;
+												awakeNeighbourhood(x, y);
+											}
+										}
+										else
+										{
+											//Move to the selected position
+											tissue_[x][y]     = DEAD;
+											tissue_[x+i][y+j] = MIGRATED;
+											awakeNeighbourhood(x, y);
+											
+											//Move no. of proliferation signals
+											ph_[x+i][y+j] = ph_[x][y];
+											ph_[x][y]     = 0;
+											
+											//Move no. of proliferations remaining.
+											rhos_[x+i][y+j] = rhos_[x][y];
+											rhos_[x][y]     = 0;
+										}
 										
-										//Move no. of proliferation signals
-										ph_[x+i][y+j] = ph_[x][y];
-										ph_[x][y]     = 0;
+										//Mark to be processed in the next iteration
+										generation_[x+i][y+j] = (it_ + 1) % 2;
 										
-										//Move no. of proliferations remaining.
-										rhos_[x+i][y+j] = rhos_[x][y];
-										rhos_[x][y]     = 0;
+										//Stop iteration (position already chosen!)
+										continueIt = false;
 									}
-									
-									//Mark to be processed in the next iteration
-									generation_[x+i][y+j] = (it_ + 1) % 2;
-									
-									//Stop iteration (position already chosen!)
-									continueIt = false;
 								}
 					}
 					
-					lock_.unlock();
+					locks_[index].unlock();	
+						
+					if (postponeChanges)
+					{
+						if (newX < begin_)
+							locks_[index - 1].lock();
+						else
+							locks_[index + 1].lock();
+							
+						//Proliferate (or migrate) to the specified cell
+						if (proliferate)
+						{
+							//New cell				
+							tissue_[newX][newY] = NEW;
+							
+							//Set proliferation signals to 0.
+							ph_[newX][newY] = 0;
+							
+							//Reset no. of proliferations remaining until death.
+							rhos_[newX][newY] = rho;
+							
+							//Kill the cell if it has reached the limit.
+							if (--rhos_[x][y] == 0)
+							{
+								tissue_[x][y] = DEAD;
+								awakeNeighbourhood(x, y);
+							}
+						}
+						else
+						{
+							//Move to the selected position
+							tissue_[x][y]       = DEAD;
+							tissue_[newX][newY] = MIGRATED;
+							awakeNeighbourhood(x, y);
+							
+							//Move no. of proliferation signals
+							ph_[newX][newY] = ph_[x][y];
+							ph_[x][y]       = 0;
+							
+							//Move no. of proliferations remaining.
+							rhos_[newX][newY] = rhos_[x][y];
+							rhos_[x][y]       = 0;
+						}
+						
+						//Mark to be processed in the next iteration
+						generation_[newX][newY] = (it_ + 1) % 2;
+						
+						if (newX < begin_)
+							locks_[index - 1].unlock();
+						else
+							locks_[index + 1].unlock();
+					}
 				}
 			}
 		}
 		else
 		{
-			lock_.lock();
+			locks_[index].lock();
 			
 			//If the cell does not survive
 			//Kill the cell
@@ -317,7 +392,7 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 			//Mark DORMANT neighbours as ALIVE, to be processed
 			awakeNeighbourhood(x, y);
 			
-			lock_.unlock();
+			locks_[index].unlock();
 		}
 	}
 }
@@ -337,6 +412,7 @@ TumorAutomaton::~TumorAutomaton()
 	delete[] rhos_;
 	delete[] generation_;
 	delete[] tasks_;
+	delete[] locks_;
 	
 	delete barrier_;
 }
