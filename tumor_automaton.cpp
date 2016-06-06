@@ -100,7 +100,11 @@ void TumorAutomaton::threads(int n)
 		
 		//Set parameters
 		threads_ = n;
+		
+		delete[] tasks_;
 		tasks_   = new std::thread[n];
+		
+		delete[] locks_;
 		locks_   = new std::mutex[n];
 		
 		//Reconstruct barrier
