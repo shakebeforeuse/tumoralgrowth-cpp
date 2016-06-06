@@ -3,3 +3,4 @@ speedup
 vgcore.*
 *.gch
 *.txt
+*.sh
