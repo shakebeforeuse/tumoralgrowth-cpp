@@ -48,13 +48,6 @@ class TumorAutomaton
 		static thread_local char prev_it_;
 		int    size_;
 		
-		//Dynamic domain
-		volatile int domainBegin_[2];
-		volatile int domainEnd_[2];
-		
-		volatile int** perThreadDomainBegin_;
-		volatile int** perThreadDomainEnd_;
-		
 		//Paralelism
 		//Number of threads we will have and array of tasks.
 		int threads_;
@@ -62,6 +55,7 @@ class TumorAutomaton
 		
 		//Synchronization
 		CyclicBarrier* barrier_;
+		std::mutex lock_;
 		
 		
 		void awakeNeighbourhood(int, int);

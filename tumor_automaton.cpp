@@ -30,8 +30,6 @@ TumorAutomaton::TumorAutomaton(int size)
 	  np(5),
 	  rho(2),
 	  size_(size),
-	  perThreadDomainBegin_(nullptr),
-	  perThreadDomainEnd_(nullptr),
 	  threads_(1),
 	  tasks_(nullptr),
 	  barrier_(nullptr)
@@ -58,25 +56,6 @@ TumorAutomaton::TumorAutomaton(int size)
 			generation_[i][j] = 0;
 		}
 	}
-	
-	domainBegin_[0] = size_;
-	domainBegin_[1] = size_;
-	domainEnd_[0]   = 0;
-	domainEnd_[1]   = 0;
-	
-	
-	//Alloc per-thread domain
-	perThreadDomainBegin_ = new volatile int*[1];
-	perThreadDomainEnd_   = new volatile int*[1];
-	
-	perThreadDomainBegin_[0] = new int[1];
-	perThreadDomainEnd_[0]   = new int[1];
-	
-	//Initialize
-	perThreadDomainBegin_[0][0] = size;
-	perThreadDomainBegin_[0][1] = size;
-	perThreadDomainEnd_[0][0]   = 0;
-	perThreadDomainEnd_[0][1]   = 0;
 }
 
 void TumorAutomaton::threads(int n)
@@ -87,16 +66,6 @@ void TumorAutomaton::threads(int n)
 	
 	if (threads_ != n)
 	{
-		//Remove per-thread domains
-		for (int i = 0; i < threads_; ++i)
-		{
-			delete[] perThreadDomainBegin_[i];
-			delete[] perThreadDomainEnd_[i];
-		}
-		
-		delete[] perThreadDomainBegin_;
-		delete[] perThreadDomainEnd_;
-		
 		//Set parameters
 		threads_ = n;
 		tasks_   = new std::thread[n];
@@ -104,24 +73,6 @@ void TumorAutomaton::threads(int n)
 		//Reconstruct barrier
 		delete barrier_;
 		barrier_ = new CyclicBarrier(n + 1);
-		
-		
-		//Create domains for n threads. Allocate.
-		perThreadDomainBegin_ = new volatile int*[n];
-		perThreadDomainEnd_   = new volatile int*[n];
-		
-		for (int i = 0; i < n; ++i)
-		{
-			perThreadDomainBegin_[i] = new int[2];
-			perThreadDomainEnd_[i]   = new int[2];
-			
-			//Initialize
-			perThreadDomainBegin_[i][0] = size_;
-			perThreadDomainBegin_[i][1] = size_;
-			
-			perThreadDomainEnd_[i][0] = 0;
-			perThreadDomainEnd_[i][1] = 0;
-		}
 	}
 }
 
@@ -134,20 +85,14 @@ void TumorAutomaton::execute(int nGenerations)
 		{
 			it_ = (it_ + 1) % 2;
 			
-			domainBegin_[0] = std::min(domainBegin_[0], perThreadDomainBegin_[0][0]);
-			domainBegin_[1] = std::min(domainBegin_[1], perThreadDomainBegin_[0][1]);
-			
-			domainEnd_[0] = std::max(domainEnd_[0], perThreadDomainEnd_[0][0]);
-			domainEnd_[1] = std::max(domainEnd_[1], perThreadDomainEnd_[0][1]);
-			
 			//Change iteration direction, to avoid distortion
 			if (it_ == 0)
-				for (int i = domainBegin_[0]; i < domainEnd_[0]; ++i)
-					for (int j = domainBegin_[1]; j < domainEnd_[1]; ++j)
+				for (int i = 0; i < size_; ++i)
+					for (int j = 0; j < size_; ++j)
 						updateCell(i, j, 0);
 			else
-				for (int i = domainEnd_[0] - 1; i >= domainBegin_[0]; --i)
-					for (int j = domainEnd_[1] - 1; j >= domainBegin_[1]; --j)
+				for (int i = size_ - 1; i >= 0; --i)
+					for (int j = size_ - 1; j >= 0; --j)
 						updateCell(i, j, 0);
 		}
 	else
@@ -159,19 +104,8 @@ void TumorAutomaton::execute(int nGenerations)
 		
 		//Compute domain limit at the start of each generation
 		for (int k = 0; k < nGenerations; ++k)
-		{
-			for (int i = 0; i < threads_; ++i)
-			{
-				domainBegin_[0] = std::min(domainBegin_[0], perThreadDomainBegin_[i][0]);
-				domainBegin_[1] = std::min(domainBegin_[1], perThreadDomainBegin_[i][1]);
-				
-				domainEnd_[0] = std::max(domainEnd_[0], perThreadDomainEnd_[i][0]);
-				domainEnd_[1] = std::max(domainEnd_[1], perThreadDomainEnd_[i][1]);
-			}
-			
 			//Sync
 			barrier_->await();
-		}
 		
 		//Join threads (in C++, either you join or detach them)
 		for (int i = 0; i < threads_; ++i)
@@ -190,29 +124,24 @@ void TumorAutomaton::operator ()(int index, int nGenerations)
 		//Await until main thread computes domain
 		barrier_->await();
 		
-		
 		//Compute domain for this thread
-		int delta = (domainEnd_[0] - domainBegin_[0]) / threads_;
+		int delta = size_ / threads_;
 		
-		int startX = domainBegin_[0] + index       * delta;			
-		int endX   = domainBegin_[0] + (index + 1) * delta;
+		int startX = index       * delta;			
+		int endX   = (index + 1) * delta;
 		
 		if (index + 1 == threads_)
-			endX = domainEnd_[0];
+			endX = size_;
 		
-		//Not the same than using domain{Begin|End}_ in the loop.
-		//This avoid looping through just-added cells
-		int startY = domainBegin_[1];
-		int endY   = domainEnd_[1];
 		
 		//Change iteration direction, to avoid distortion
 		if (it_ == 0)
 			for (int i = startX; i < endX; ++i)
-				for (int j = startY; j < endY; ++j)
+				for (int j = 0; j < size_; ++j)
 					updateCell(i, j, index);
 		else
 			for (int i = endX - 1; i >= startX; --i)
-				for (int j = endY - 1; j >= startY; --j)
+				for (int j = size_ - 1; j >= 0; --j)
 					updateCell(i, j, index);
 	}
 	
@@ -231,23 +160,6 @@ void TumorAutomaton::reset()
 			rhos_[i][j]       = 0;
 			generation_[i][j] = 0;
 		}
-	
-	//Reset domain
-	domainBegin_[0] = size_;
-	domainBegin_[1] = size_;
-	domainEnd_[0]   = 0;
-	domainEnd_[1]   = 0;
-	
-	//Reset per-thread domain
-	for (int i = 0; i < threads_; ++i)
-	{
-		//Initialize
-		perThreadDomainBegin_[i][0] = size_;
-		perThreadDomainBegin_[i][1] = size_;
-		
-		perThreadDomainEnd_[i][0] = 0;
-		perThreadDomainEnd_[i][1] = 0;
-	}
 }
 
 //Intended to be used only externally (public)
@@ -255,19 +167,7 @@ void TumorAutomaton::cellState(int x, int y, int v)
 {
 	//Check if it is within bounds. Do nothing if not.
 	if (0 <= x && x < size_ && 0 <= y && y < size_)
-	{
-		if (domainBegin_[0] > x)
-			domainBegin_[0] = std::max(x, 0);
-		if (domainBegin_[1] > y)
-			domainBegin_[1] = std::max(y, 0);
-			
-		if (domainEnd_[0] <= x)
-			domainEnd_[0] = std::min(x + 1, size_);
-		if (domainEnd_[1] <= y)
-			domainEnd_[1] = std::min(y + 1, size_);
-		
 		tissue_[x][y] = v;
-	}
 }
 
 int TumorAutomaton::cellState(int x, int y) const
@@ -323,6 +223,8 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 					
 					int n[8];
 					float p[8];
+					
+					lock_.lock();
 					
 					//Compute no. of alive neighbours
 					int count = 0;
@@ -395,32 +297,27 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 									//Mark to be processed in the next iteration
 									generation_[x+i][y+j] = (it_ + 1) % 2;
 									
-									//Update per-thread domain
-									if (perThreadDomainBegin_[index][0] >= x + i)
-										perThreadDomainBegin_[index][0] = std::max(x + i, 0);
-									if (perThreadDomainBegin_[index][1] >= y + j)
-										perThreadDomainBegin_[index][1] = std::max(y + j, 0);
-										
-									if (perThreadDomainEnd_[index][0] <= x + i)
-										perThreadDomainEnd_[index][0] = std::min(x + i + 1, size_);
-									if (perThreadDomainEnd_[index][1] <= y + j)
-										perThreadDomainEnd_[index][1] = std::min(y + j + 1, size_);
-									
 									//Stop iteration (position already chosen!)
 									continueIt = false;
 								}
 					}
+					
+					lock_.unlock();
 				}
 			}
 		}
 		else
 		{
+			lock_.lock();
+			
 			//If the cell does not survive
 			//Kill the cell
 			tissue_[x][y] = DEAD;
 			
 			//Mark DORMANT neighbours as ALIVE, to be processed
 			awakeNeighbourhood(x, y);
+			
+			lock_.unlock();
 		}
 	}
 }
@@ -442,13 +339,4 @@ TumorAutomaton::~TumorAutomaton()
 	delete[] tasks_;
 	
 	delete barrier_;
-	
-	for (int i = 0; i < threads_; ++i)
-	{
-		delete[] perThreadDomainBegin_[i];
-		delete[] perThreadDomainEnd_[i];
-	}
-	
-	delete[] perThreadDomainBegin_;
-	delete[] perThreadDomainEnd_;
 }
