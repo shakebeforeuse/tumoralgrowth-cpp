@@ -70,6 +70,9 @@ void TumorAutomaton::threads(int n)
 		threads_ = n;
 		tasks_   = new std::thread[n];
 		
+		delete locks_;
+		locks_ = new std::mutex[n];
+		
 		//Reconstruct barrier
 		delete barrier_;
 		barrier_ = new CyclicBarrier(n + 1);
@@ -137,12 +140,42 @@ void TumorAutomaton::operator ()(int index, int nGenerations)
 		//Change iteration direction, to avoid distortion
 		if (it_ == 0)
 			for (int i = startX; i < endX; ++i)
+			{
+				if (index != 0 && i < startX + 2)
+					locks_[index - 1].lock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].lock();
+						
 				for (int j = 0; j < size_; ++j)
 					updateCell(i, j, index);
+					
+				if (index != 0 && i < startX + 2)
+						locks_[index- 1].unlock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].unlock();
+			}
 		else
 			for (int i = endX - 1; i >= startX; --i)
+			{
+				if (index != 0 && i < startX + 2)
+						locks_[index - 1].lock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].lock();
+					
 				for (int j = size_ - 1; j >= 0; --j)
+				{
 					updateCell(i, j, index);
+				}
+				
+				if (index != 0 && i < startX + 2)
+						locks_[index - 1].unlock();
+						
+				if (index != threads_ - 1 && i >= endX - 2)
+					locks_[index].unlock();
+			}
 	}
 	
 	//Save state for the next call to execute (if any)
@@ -224,8 +257,6 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 					int n[8];
 					float p[8];
 					
-					lock_.lock();
-					
 					//Compute no. of alive neighbours
 					int count = 0;
 					for (int i = -1; i <= 1; ++i)
@@ -301,23 +332,17 @@ void TumorAutomaton::updateCell(int x, int y, int index)
 									continueIt = false;
 								}
 					}
-					
-					lock_.unlock();
 				}
 			}
 		}
 		else
 		{
-			lock_.lock();
-			
 			//If the cell does not survive
 			//Kill the cell
 			tissue_[x][y] = DEAD;
 			
 			//Mark DORMANT neighbours as ALIVE, to be processed
 			awakeNeighbourhood(x, y);
-			
-			lock_.unlock();
 		}
 	}
 }
@@ -337,6 +362,7 @@ TumorAutomaton::~TumorAutomaton()
 	delete[] rhos_;
 	delete[] generation_;
 	delete[] tasks_;
+	delete[] locks_;
 	
 	delete barrier_;
 }
